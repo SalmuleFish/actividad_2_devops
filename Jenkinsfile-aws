@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_ACCESS_KEY_ID     = credentials('aws-access-key')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
+        AWS_SESSION_TOKEN     = credentials('aws-session-token')
+        AWS_DEFAULT_REGION    = 'us-east-1'
+        AWS_PATH              = '/home/salmule/.local/bin/aws'
+    }
+
+    stages {
+        stage('Build & Test Local') {
+            steps {
+                sh '''
+                    python3 -m venv venv || true
+                    . venv/bin/activate
+                    pip install -r app/requirements.txt pytest
+                    pytest tests/
+                '''
+            }
+        }
+
+        stage('Deploy Infra & App (AWS)') {
+            steps {
+                echo "Lanzando infraestructura en AWS Academy..."
+                // Desplegamos la EC2 con CloudFormation
+                sh """
+                    ${AWS_PATH} cloudformation deploy \
+                    --template-file infrastructure/template.yaml \
+                    --stack-name actividad2-stack \
+                    --region ${AWS_DEFAULT_REGION} \
+                    --no-fail-on-empty-changeset
+                """
+
+                // Obtenemos la IP para saber dónde quedó
+                sh """
+                    ${AWS_PATH} cloudformation describe-stacks \
+                    --stack-name actividad2-stack \
+                    --query "Stacks[0].Outputs[?OutputKey=='PublicDNS'].OutputValue" \
+                    --output text
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '¡EC2 lista! Ahora podés entrar por SSH y tirar el docker-compose up.'
+        }
+    }
+}
